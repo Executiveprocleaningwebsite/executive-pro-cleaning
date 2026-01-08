@@ -1,0 +1,18 @@
+node_modules
+.next
+out
+.env.local
+.env.*.local
+.DS_Store
+node_modules
+.next
+out
+
+# env files (never commit)
+.env*
+.env.local
+.env.*.local
+
+# misc 
+.DS_Store
+.vercel
