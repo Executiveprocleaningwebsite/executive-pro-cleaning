@@ -504,6 +504,83 @@ input, select, textarea{ font: inherit; font-size: 16px; }
   margin-top: 6px;
 }
 
+.socialCards{
+  margin-top: 18px;
+  max-width: 900px;
+  display: grid;
+  gap: 14px;
+}
+
+.socialCard{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  text-decoration: none;
+  color: var(--text);
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  will-change: transform;
+}
+.socialCard:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
+  border-color: rgba(11,59,116,0.25);
+}
+.socialCard:active{
+  transform: translateY(0) scale(0.99);
+}
+
+.socialIcon{
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  flex: 0 0 auto;
+  transition: transform 180ms ease;
+  will-change: transform;
+}
+.socialIcon.fb{ background: #1877f2; }
+.socialIcon.ig{
+  background: radial-gradient(circle at 30% 110%,
+    #fdf497 0%,
+    #fdf497 5%,
+    #fd5949 45%,
+    #d6249f 60%,
+    #285aeb 90%);
+}
+.socialCard:hover .socialIcon{
+  transform: translateY(-1px) scale(1.03);
+}
+
+/* click bounce */
+@keyframes socialPop{
+  0%{ transform: scale(1); }
+  55%{ transform: scale(1.14); }
+  100%{ transform: scale(1); }
+}
+.socialCard:active .socialIcon{
+  animation: socialPop 220ms ease;
+}
+
+.socialText{ flex: 1; }
+.socialText h2{ margin: 0; font-size: 20px; }
+.socialText p{
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.socialArrow{
+  font-size: 22px;
+  opacity: 0.9;
+  flex: 0 0 auto;
+}
+
 /* ---------- BEFORE & AFTER ---------- */
 .baGrid{ display: grid; gap: 18px; }
 .baCard{
