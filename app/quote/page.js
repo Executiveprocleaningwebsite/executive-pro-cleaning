@@ -21,6 +21,11 @@ function clampStr(v, max) {
   return String(v).slice(0, max);
 }
 
+// ✅ Upload limits
+const MAX_FILES = 3;
+const MAX_MB = 5;
+const MAX_BYTES = MAX_MB * 1024 * 1024;
+
 export default function QuotePage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -42,6 +47,10 @@ export default function QuotePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [okMsg, setOkMsg] = useState("");
   const [errMsg, setErrMsg] = useState("");
+
+  // ✅ Photos
+  const [photos, setPhotos] = useState([]); // File[]
+  const [photoErr, setPhotoErr] = useState("");
 
   const maxDetails = 800;
 
@@ -101,6 +110,55 @@ export default function QuotePage() {
     }
   }, [turnstileReady]);
 
+  // ✅ Create preview URLs for selected photos
+  const photoPreviews = useMemo(() => {
+    return photos.map((f) => ({
+      file: f,
+      name: f.name,
+      url: URL.createObjectURL(f),
+    }));
+  }, [photos]);
+
+  // ✅ Clean up preview URLs (avoid memory leaks)
+  useEffect(() => {
+    return () => {
+      photoPreviews.forEach((p) => URL.revokeObjectURL(p.url));
+    };
+  }, [photoPreviews]);
+
+  function onPickPhotos(e) {
+    setPhotoErr("");
+    const picked = Array.from(e.target.files || []);
+    if (!picked.length) return;
+
+    const next = [...photos];
+
+    for (const file of picked) {
+      if (next.length >= MAX_FILES) break;
+
+      if (!file.type?.startsWith("image/")) {
+        setPhotoErr("Only image files are allowed.");
+        continue;
+      }
+      if (file.size > MAX_BYTES) {
+        setPhotoErr(`Each photo must be under ${MAX_MB}MB.`);
+        continue;
+      }
+
+      next.push(file);
+    }
+
+    // Cap at MAX_FILES
+    setPhotos(next.slice(0, MAX_FILES));
+
+    // Clear input so selecting the same file again works
+    e.target.value = "";
+  }
+
+  function removePhoto(index) {
+    setPhotos((arr) => arr.filter((_, i) => i !== index));
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     setOkMsg("");
@@ -113,23 +171,29 @@ export default function QuotePage() {
 
     setIsSubmitting(true);
     try {
+      // ✅ Must use FormData when uploading files
+      const fd = new FormData();
+      fd.append("name", clampStr(name, 60));
+      fd.append("email", clampStr(email, 120));
+      fd.append("phone", clampStr(phone, 30));
+      fd.append("suburb", clampStr(suburb, 60));
+      fd.append("service", clampStr(service, 60));
+      fd.append("property", clampStr(property, 60));
+      fd.append("frequency", clampStr(frequency, 40));
+      fd.append("preferredTime", clampStr(preferredTime, 80));
+      fd.append("details", clampStr(details, maxDetails));
+      fd.append("website", clampStr(website, 80));
+      fd.append("turnstileToken", turnstileToken);
+      fd.append("serverNonce", serverNonce);
+
+      // ✅ Up to 3 photos
+      photos.slice(0, MAX_FILES).forEach((file) => {
+        fd.append("photos", file);
+      });
+
       const res = await fetch("/api/quote", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: clampStr(name, 60),
-          email: clampStr(email, 120),
-          phone: clampStr(phone, 30),
-          suburb: clampStr(suburb, 60),
-          service: clampStr(service, 60),
-          property: clampStr(property, 60),
-          frequency: clampStr(frequency, 40),
-          preferredTime: clampStr(preferredTime, 80),
-          details: clampStr(details, maxDetails),
-          website: clampStr(website, 80),
-          turnstileToken,
-          serverNonce,
-        }),
+        body: fd,
       });
 
       const data = await res.json().catch(() => ({}));
@@ -148,6 +212,9 @@ export default function QuotePage() {
       setPreferredTime("");
       setDetails("");
       setTurnstileToken("");
+      setPhotos([]);
+      setPhotoErr("");
+
       // refresh nonce
       const rand = Math.random().toString(36).slice(2);
       setServerNonce(`${Date.now()}_${rand}`);
@@ -302,6 +369,43 @@ export default function QuotePage() {
             placeholder="Tell us what you need (rooms, tasks, any special requests, access notes, etc.)"
             required
           />
+        </div>
+
+        {/* ✅ Photo upload */}
+        <div className="field">
+          <div className="labelRow">
+            <label htmlFor="q-photos">Photos (optional)</label>
+            <span className="counter">{photos.length}/{MAX_FILES}</span>
+          </div>
+
+          <input
+            id="q-photos"
+            className="input"
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={onPickPhotos}
+            disabled={photos.length >= MAX_FILES}
+          />
+
+          <p className="mutedText" style={{ marginTop: 8 }}>
+            Add up to {MAX_FILES} photos (images only, max {MAX_MB}MB each).
+          </p>
+
+          {photoErr ? <p className="formError">{photoErr}</p> : null}
+
+          {photoPreviews.length ? (
+            <div className="thumbGrid">
+              {photoPreviews.map((p, idx) => (
+                <div key={p.url} className="thumb">
+                  <img src={p.url} alt={p.name} />
+                  <button type="button" className="thumbRemove" onClick={() => removePhoto(idx)}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {/* Turnstile */}
