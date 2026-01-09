@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/before-after", label: "Before & After" },
   { href: "/pricing", label: "Pricing" },
   { href: "/socials", label: "Socials" },
+  { href: "/quote", label: "Get a quote" }, // ✅ NEW
   { href: "/contact", label: "Contact us" }
 ];
 
@@ -64,13 +65,13 @@ export default function NavBar() {
     <header className={`nav ${open ? "navMenuOpen" : ""}`}>
       <div className="container">
         <button
-  className="navOverlay"
-  aria-label="Close menu"
-  onClick={closeMenu}
-  type="button"
-  disabled={!open}
-  aria-hidden={!open}
-/>
+          className="navOverlay"
+          aria-label="Close menu"
+          onClick={closeMenu}
+          type="button"
+          disabled={!open}
+          aria-hidden={!open}
+        />
 
         <div className="navInner">
           <div className="navLeft">
@@ -87,18 +88,18 @@ export default function NavBar() {
           </div>
 
           <nav className="links" aria-label="Primary navigation">
-  {LINKS.map((l) => (
-    <Link
-      key={l.href}
-      href={l.href}
-      className={`link ${pathname === l.href ? "active" : ""}`}
-      aria-current={pathname === l.href ? "page" : undefined}
-      onClick={closeMenu}
-    >
-      {l.label}
-    </Link>
-  ))}
-</nav>
+            {LINKS.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={`link ${pathname === l.href ? "active" : ""}`}
+                aria-current={pathname === l.href ? "page" : undefined}
+                onClick={closeMenu}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
 
           <button
             className="burger"
@@ -118,15 +119,15 @@ export default function NavBar() {
           aria-label="Mobile navigation"
         >
           {LINKS.map((l) => (
-  <Link
-    key={l.href}
-    href={l.href}
-    onClick={closeMenu}
-    aria-current={pathname === l.href ? "page" : undefined}
-  >
-    {l.label}
-  </Link>
-))}
+            <Link
+              key={l.href}
+              href={l.href}
+              onClick={closeMenu}
+              aria-current={pathname === l.href ? "page" : undefined}
+            >
+              {l.label}
+            </Link>
+          ))}
         </div>
       </div>
     </header>

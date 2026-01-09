@@ -1,5 +1,5 @@
 export default function sitemap() {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const baseUrl = "https://executive-pro-cleaning.vercel.app";
 
   const routes = [
     "",
@@ -9,14 +9,14 @@ export default function sitemap() {
     "/pricing",
     "/socials",
     "/contact",
+    "/quote", // ✅ NEW
     "/privacy",
     "/terms",
+    "/accessibility",
   ];
 
-  const lastModified = new Date();
-
   return routes.map((route) => ({
-    url: `${siteUrl}${route}`,
-    lastModified,
+    url: `${baseUrl}${route}`,
+    lastModified: new Date(),
   }));
 }
