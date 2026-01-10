@@ -5,17 +5,27 @@ import nodemailer from "nodemailer";
 import crypto from "crypto";
 
 // --------------------
+// Hard caps
+// --------------------
+const MAX_BODY_BYTES = 30 * 1024; // 30KB max JSON payload
+
+// --------------------
 // Rate limiting (best-effort on serverless)
 // --------------------
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_MAX = 5; // 5 requests per IP per window
-const rateMap = new Map(); // ip -> { count, resetAt }
 
-// ✅ Per-email protection (stops “same email, different IP” spam)
+// Persist maps best-effort across hot reloads / reused runtimes
+const rateMap = globalThis.__CONTACT_RL__ || new Map(); // ip -> { count, resetAt }
+globalThis.__CONTACT_RL__ = rateMap;
+
+// Per-email protection (stops “same email, different IP” spam)
 const EMAIL_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
 const EMAIL_MAX_PER_WINDOW = 3; // max 3 per email per window
 const EMAIL_COOLDOWN_MS = 60 * 1000; // min 60s between submissions per email
-const emailMap = new Map(); // email -> { count, resetAt, lastAt }
+
+const emailMap = globalThis.__CONTACT_EMAIL_RL__ || new Map(); // email -> { count, resetAt, lastAt }
+globalThis.__CONTACT_EMAIL_RL__ = emailMap;
 
 // Must match the Contact page options (prevents random/bot values)
 const ALLOWED_SERVICES = new Set([
@@ -59,7 +69,7 @@ function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-// ✅ Safe logging (no secrets, no full message content)
+// Safe logging (no secrets, no full message content)
 function hashForLogs(value) {
   // Optional salt (recommended): set LOG_SALT in Vercel env vars
   const salt = process.env.LOG_SALT || "";
@@ -67,7 +77,6 @@ function hashForLogs(value) {
 }
 
 function safeLog(event, meta = {}) {
-  // Keep logs small + safe
   const payload = {
     event,
     time: new Date().toISOString(),
@@ -97,7 +106,7 @@ function rateLimitOrThrow(ip) {
   }
 }
 
-// ✅ Email-based limiter: cooldown + window cap
+// Email-based limiter: cooldown + window cap
 function emailLimitOrThrow(email) {
   const now = Date.now();
   const key = normalizeEmail(email);
@@ -129,13 +138,12 @@ function emailLimitOrThrow(email) {
     err.status = 429;
     throw err;
   }
-}
+} // ✅ <-- THIS was the missing brace in your file
 
 /**
  * Same-origin protection:
- * - If the browser sends an Origin header, we require it to match the current Host.
- * - This blocks other websites from POSTing to your endpoint.
- * - You can optionally allow extra origins via ALLOWED_ORIGINS env (comma-separated).
+ * - If Origin header exists, require it matches Host.
+ * - Optionally allow extra origins via ALLOWED_ORIGINS env (comma-separated).
  */
 function enforceSameOrigin(req) {
   const origin = req.headers.get("origin");
@@ -176,6 +184,12 @@ export async function POST(req) {
   try {
     enforceSameOrigin(req);
 
+    // Body size cap (cheap protection vs huge spam payloads)
+    const cl = Number(req.headers.get("content-length") || "0");
+    if (cl && cl > MAX_BODY_BYTES) {
+      return Response.json({ error: "Payload too large." }, { status: 413, headers: NO_STORE });
+    }
+
     const ct = (req.headers.get("content-type") || "").toLowerCase();
     if (!ct.includes("application/json")) {
       return Response.json({ error: "Unsupported content type." }, { status: 415, headers: NO_STORE });
@@ -196,6 +210,7 @@ export async function POST(req) {
     const address = sanitizeText(body?.address);
     const message = sanitizeText(body?.message);
 
+    // honeypots
     const website = sanitizeText(body?.website);
     const company = sanitizeText(body?.company);
 
@@ -236,7 +251,7 @@ export async function POST(req) {
       return Response.json({ error: "Please enter a valid email address." }, { status: 400, headers: NO_STORE });
     }
 
-    // ✅ Email cooldown/window cap
+    // Email cooldown/window cap
     emailLimitOrThrow(email);
 
     // Turnstile (only enforce if secret exists)
@@ -263,7 +278,7 @@ export async function POST(req) {
       }
     }
 
-    const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, CONTACT_TO } = process.env;
+    const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, CONTACT_TO, CONTACT_FROM } = process.env;
 
     // Safe metadata for logs
     const safeMeta = {
@@ -291,7 +306,11 @@ export async function POST(req) {
       auth: { user: SMTP_USER, pass: SMTP_PASS },
     });
 
-    const enquiryId = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+    // More collision-proof enquiry ID: timestamp + random
+    const ts = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+    const rand = crypto.randomBytes(3).toString("hex");
+    const enquiryId = `${ts}-${rand}`;
+
     const subject = `New website enquiry [${enquiryId}]: ${service}`;
 
     const text = [
@@ -346,8 +365,10 @@ export async function POST(req) {
       </div>
     `;
 
+    const fromValue = CONTACT_FROM || `"Executive Pro Cleaning Website" <${SMTP_USER}>`;
+
     await transporter.sendMail({
-      from: `"Executive Pro Cleaning Website" <${SMTP_USER}>`,
+      from: fromValue,
       to: CONTACT_TO,
       subject,
       text,
@@ -362,7 +383,6 @@ export async function POST(req) {
   } catch (err) {
     const status = err?.status || 500;
 
-    // Safe error logging
     safeLog("contact_error", {
       ip,
       host: req.headers.get("host") || "",
@@ -372,7 +392,7 @@ export async function POST(req) {
     });
 
     if (status === 500) {
-      console.error("Contact API error:", err); // keeps stack trace for debugging
+      console.error("Contact API error:", err);
       return Response.json({ error: "Server error." }, { status: 500, headers: NO_STORE });
     }
 

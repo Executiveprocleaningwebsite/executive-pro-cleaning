@@ -8,6 +8,41 @@ const MAX_FILES = 3;
 const MAX_MB_EACH = 5;
 const MAX_BYTES_EACH = MAX_MB_EACH * 1024 * 1024;
 
+// ✅ New: total upload cap across all photos (combined)
+const MAX_TOTAL_MB = 12;
+const MAX_TOTAL_BYTES = MAX_TOTAL_MB * 1024 * 1024;
+
+// ✅ New: magic-bytes detection (don’t trust file.type)
+function detectImageType(buf) {
+  // JPEG: FF D8 FF
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buf.length >= 8 &&
+    buf
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  )
+    return "image/png";
+
+  // GIF: "GIF87a" or "GIF89a"
+  if (buf.length >= 6) {
+    const h = buf.subarray(0, 6).toString("ascii");
+    if (h === "GIF87a" || h === "GIF89a") return "image/gif";
+  }
+
+  // WebP: "RIFF....WEBP"
+  if (
+    buf.length >= 12 &&
+    buf.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buf.subarray(8, 12).toString("ascii") === "WEBP"
+  )
+    return "image/webp";
+
+  return null;
+}
+
 function getIp(req) {
   const xff = req.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0].trim();
@@ -117,8 +152,10 @@ export async function POST(req) {
     const details = safeStr(fd.get("details"), 800);
 
     if (name.length < 2) return Response.json({ error: "Name is required." }, { status: 400 });
-    if (!email.includes("@") || email.length < 6) return Response.json({ error: "Valid email is required." }, { status: 400 });
-    if (details.length < 10) return Response.json({ error: "Please include more details (at least 10 characters)." }, { status: 400 });
+    if (!email.includes("@") || email.length < 6)
+      return Response.json({ error: "Valid email is required." }, { status: 400 });
+    if (details.length < 10)
+      return Response.json({ error: "Please include more details (at least 10 characters)." }, { status: 400 });
 
     // ✅ Photos (optional)
     const rawPhotos = fd.getAll("photos") || [];
@@ -126,25 +163,67 @@ export async function POST(req) {
 
     // validate + convert to attachments
     const attachments = [];
+    let totalBytes = 0;
+
     for (const file of photoFiles) {
       const type = safeStr(file.type, 80);
       const size = Number(file.size || 0);
 
+      // Basic checks
       if (!type.startsWith("image/")) {
         return Response.json({ error: "Only image uploads are allowed." }, { status: 400 });
       }
+
+      // ✅ Block SVG specifically (can contain scripts)
+      if (type === "image/svg+xml") {
+        return Response.json({ error: "SVG uploads are not allowed." }, { status: 400 });
+      }
+
       if (size <= 0) continue;
+
+      // Per-file limit
       if (size > MAX_BYTES_EACH) {
         return Response.json({ error: `Each photo must be under ${MAX_MB_EACH}MB.` }, { status: 400 });
+      }
+
+      // ✅ Total size limit (all files combined)
+      totalBytes += size;
+      if (totalBytes > MAX_TOTAL_BYTES) {
+        return Response.json({ error: `Total photos must be under ${MAX_TOTAL_MB}MB.` }, { status: 400 });
       }
 
       const ab = await file.arrayBuffer();
       const buf = Buffer.from(ab);
 
+      // ✅ Magic-bytes validation (real image type)
+      const detected = detectImageType(buf);
+      if (!detected) {
+        return Response.json(
+          { error: "Unsupported image format. Use JPG, PNG, WebP, or GIF." },
+          { status: 400 }
+        );
+      }
+
+      // Ensure filename extension matches detected type (optional but recommended)
+      const ext =
+        detected === "image/jpeg"
+          ? "jpg"
+          : detected === "image/png"
+          ? "png"
+          : detected === "image/webp"
+          ? "webp"
+          : detected === "image/gif"
+          ? "gif"
+          : "img";
+
+      let safeName = safeFilename(file.name);
+      if (!safeName.toLowerCase().endsWith(`.${ext}`)) safeName = `${safeName}.${ext}`;
+
       attachments.push({
-        filename: safeFilename(file.name),
+        filename: safeName,
         content: buf,
-        contentType: type || "application/octet-stream",
+        // ✅ Use detected type (don’t trust file.type)
+        contentType: detected,
       });
     }
 
@@ -202,6 +281,8 @@ export async function POST(req) {
 
     return Response.json({ ok: true }, { status: 200 });
   } catch (err) {
-    return Response.json({ error: err?.message || "Server error" }, { status: 500 });
+    // ✅ Log server-side, but don’t leak internals to the browser
+    console.error("QUOTE API ERROR:", err);
+    return Response.json({ error: "Server error" }, { status: 500 });
   }
 }
